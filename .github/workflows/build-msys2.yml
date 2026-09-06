@@ -3,6 +3,7 @@ name: Build chiaki-ng msys2 x86 Windows
 on:
   push:
     branches: [fix/stream-timestamp-drift]
+    paths: ['lib/**', 'gui/**', 'test/**', 'scripts/**', 'CMakeLists.txt']
   workflow_dispatch:
     inputs:
       libplacebo_version:
