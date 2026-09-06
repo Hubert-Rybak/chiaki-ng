@@ -40,6 +40,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ffmpeg_decoder_init(ChiakiFfmpegDecoder *de
 	decoder->frames_lost = 0;
 	decoder->frame_recovered = false;
 	decoder->synthetic_packet_pts = 0;
+	decoder->synthetic_last_packet_pts = -1;
+	decoder->synthetic_first_sample_time_us = 0;
 	decoder->synthetic_framerate = (AVRational){max_fps > 0 ? (int)max_fps : 60, 1};
 	decoder->synthetic_time_base = (AVRational){1, 1000000};
 	decoder->synthetic_frame_duration_us = chiaki_ffmpeg_decoder_default_frame_duration_us(max_fps);
@@ -133,16 +135,12 @@ CHIAKI_EXPORT void chiaki_ffmpeg_decoder_fini(ChiakiFfmpegDecoder *decoder)
 	chiaki_mutex_fini(&decoder->mutex);
 }
 
-CHIAKI_EXPORT bool chiaki_ffmpeg_decoder_video_sample_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user)
+CHIAKI_EXPORT int64_t chiaki_ffmpeg_decoder_next_pts(ChiakiFfmpegDecoder *decoder,
+	uint64_t now_us, int32_t frames_lost)
 {
-	ChiakiFfmpegDecoder *decoder = user;
-
-	chiaki_mutex_lock(&decoder->mutex);
-	decoder->frames_lost += frames_lost;
-	decoder->frame_recovered = frame_recovered;
-	if(decoder->synthetic_last_sample_time_us)
+	if(decoder->synthetic_last_packet_pts >= 0)
 	{
-		double observed_duration_us = (double)(chiaki_time_now_monotonic_us() - decoder->synthetic_last_sample_time_us);
+		double observed_duration_us = (double)(now_us - decoder->synthetic_last_sample_time_us);
 		int64_t delivered_frames = (int64_t)frames_lost + 1;
 		double default_duration_us = chiaki_ffmpeg_decoder_default_frame_duration_us((unsigned int)decoder->synthetic_framerate.num);
 		if(delivered_frames > 1)
@@ -179,7 +177,9 @@ CHIAKI_EXPORT bool chiaki_ffmpeg_decoder_video_sample_cb(uint8_t *buf, size_t bu
 			decoder->synthetic_candidate_count = 0;
 		}
 	}
-	decoder->synthetic_last_sample_time_us = chiaki_time_now_monotonic_us();
+	else
+		decoder->synthetic_first_sample_time_us = now_us;
+	decoder->synthetic_last_sample_time_us = now_us;
 
 	int64_t synthetic_duration_pts = (int64_t)(decoder->synthetic_frame_duration_us + 0.5);
 	if(synthetic_duration_pts < 1)
@@ -187,16 +187,48 @@ CHIAKI_EXPORT bool chiaki_ffmpeg_decoder_video_sample_cb(uint8_t *buf, size_t bu
 	if(frames_lost > 0)
 		decoder->synthetic_packet_pts += synthetic_duration_pts * (int64_t)frames_lost;
 
+	/* The duration estimator deliberately ignores small rate differences. Without
+	 * a clock anchor those differences (including integer rounding) accumulate
+	 * for the entire session. Keep nominal pacing through ordinary arrival jitter,
+	 * but bound its phase error to two nominal frames in either direction. */
+	int64_t elapsed_us = (int64_t)(now_us - decoder->synthetic_first_sample_time_us);
+	int64_t tolerance_us = (int64_t)(2.0 * chiaki_ffmpeg_decoder_default_frame_duration_us(
+		(unsigned int)decoder->synthetic_framerate.num) + 0.5);
+	int64_t pts = decoder->synthetic_packet_pts;
+	if(pts < elapsed_us - tolerance_us)
+		pts = elapsed_us - tolerance_us;
+	else if(pts > elapsed_us + tolerance_us)
+		pts = elapsed_us + tolerance_us;
+	/* Preserve ordering even when delayed samples arrive in a burst. The GUI
+	 * compares timestamps with a one-microsecond epsilon. */
+	if(pts <= decoder->synthetic_last_packet_pts + 1)
+		pts = decoder->synthetic_last_packet_pts + 2;
+	if(decoder->synthetic_last_packet_pts < 0)
+		pts = 0;
+	decoder->synthetic_last_packet_pts = pts;
+	decoder->synthetic_packet_pts = pts + synthetic_duration_pts;
+	return pts;
+}
+
+CHIAKI_EXPORT bool chiaki_ffmpeg_decoder_video_sample_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user)
+{
+	ChiakiFfmpegDecoder *decoder = user;
+
+	chiaki_mutex_lock(&decoder->mutex);
+	decoder->frames_lost += frames_lost;
+	decoder->frame_recovered = frame_recovered;
+	int64_t pts = chiaki_ffmpeg_decoder_next_pts(decoder, chiaki_time_now_monotonic_us(), frames_lost);
+	int64_t synthetic_duration_pts = decoder->synthetic_packet_pts - pts;
+
 	AVPacket *packet = av_packet_alloc();
 	packet->data = buf;
 	packet->size = buf_size;
-	packet->pts = decoder->synthetic_packet_pts;
-	packet->dts = decoder->synthetic_packet_pts;
+	packet->pts = pts;
+	packet->dts = pts;
 	packet->duration = synthetic_duration_pts;
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(59, 8, 100)
 	packet->time_base = decoder->synthetic_time_base;
 #endif
-	decoder->synthetic_packet_pts += synthetic_duration_pts;
 	int r;
 send_packet:
 	r = avcodec_send_packet(decoder->codec_context, packet);

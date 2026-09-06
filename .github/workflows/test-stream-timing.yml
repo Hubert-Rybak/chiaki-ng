@@ -1,0 +1,29 @@
+name: Test stream timing
+on:
+  push:
+    branches: [fix/stream-timestamp-drift]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libssl-dev libopus-dev libavcodec-dev libavutil-dev libjson-c-dev libminiupnpc-dev libevent-dev protobuf-compiler python3-protobuf
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCHIAKI_ENABLE_GUI=OFF -DCHIAKI_ENABLE_CLI=OFF
+          -DCHIAKI_ENABLE_STEAMDECK_NATIVE=OFF -DCHIAKI_ENABLE_SETSU=OFF
+          -DCHIAKI_ENABLE_SPEEX=OFF -DCHIAKI_ENABLE_STEAM_SHORTCUT=OFF
+          -DCHIAKI_ENABLE_FFMPEG_DECODER=ON -DCHIAKI_ENABLE_TESTS=ON
+      - name: Build and test
+        run: |
+          cmake --build build --target chiaki-unit
+          ctest --test-dir build --output-on-failure

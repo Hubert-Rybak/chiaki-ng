@@ -44,6 +44,8 @@ struct chiaki_ffmpeg_decoder_t
 	bool frame_recovered;
 	int32_t session_bitrate_kbps;
 	int64_t synthetic_packet_pts;
+	int64_t synthetic_last_packet_pts;
+	uint64_t synthetic_first_sample_time_us;
 	AVRational synthetic_time_base;
 	AVRational synthetic_framerate;
 	double synthetic_frame_duration_us;
@@ -59,6 +61,11 @@ CHIAKI_EXPORT void chiaki_ffmpeg_decoder_fini(ChiakiFfmpegDecoder *decoder);
 CHIAKI_EXPORT bool chiaki_ffmpeg_decoder_video_sample_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user);
 CHIAKI_EXPORT ChiakiFfmpegFrame chiaki_ffmpeg_decoder_pull_frame(ChiakiFfmpegDecoder *decoder, int32_t *frames_lost);
 CHIAKI_EXPORT enum AVPixelFormat chiaki_ffmpeg_decoder_get_pixel_format(ChiakiFfmpegDecoder *decoder);
+
+/* Advance the synthetic video clock using a monotonic sample arrival time.
+ * Caller holds decoder->mutex. Exposed for deterministic timing tests. */
+CHIAKI_EXPORT int64_t chiaki_ffmpeg_decoder_next_pts(ChiakiFfmpegDecoder *decoder,
+	uint64_t now_us, int32_t frames_lost);
 
 /**
  * Compute the wall-clock pts (seconds) and frame duration (seconds) from raw
