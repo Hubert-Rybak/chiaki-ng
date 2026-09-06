@@ -35,16 +35,23 @@ arrival jitter, missing frames, a five-second interruption, a packet burst,
 and transitions between 60 and 30 fps. They execute the production timing
 helper without requiring a console or real-time waits.
 
-## Required live validation
+## Validation
 
-This is a candidate fix for the reported symptom, not a confirmed diagnosis
-of this machine. Run the portable test build for at least 30 minutes with the
-same console, network, decoder and quality settings. Record whether the
-slowdown returns, and capture packet loss, queue depth and pending-frame age
-from the statistics overlay before and during any slowdown.
+The Windows portable build from commit
+`bcc8538a658d07649178f98ff6bf7d61bc53c652` passed the unit suite, including
+the timing regressions. The Linux unit suite also passed. The downloaded
+Windows artifact matched its published SHA-256 digest, and its help command
+exited successfully on the affected machine.
 
-If the timing patch does not resolve it, compare the default rendering preset
-and a different supported hardware decoder separately, while monitoring GPU
-load, memory and Wi-Fi latency. Those experiments distinguish GPU/driver
-pressure and transport stalls from timestamp drift. No machine settings or
-installed application files were changed as part of this investigation.
+- [Windows build and tests](https://github.com/Hubert-Rybak/chiaki-ng/actions/runs/34044526371)
+- [Linux tests](https://github.com/Hubert-Rybak/chiaki-ng/actions/runs/34044526380)
+
+The user subsequently tested the portable build and reported that it appears
+to resolve the slowdown, then requested finalization. The test duration was
+not specified. This supports the fix for the reported symptom but does not
+establish timestamp drift as the sole cause: the build also includes upstream
+changes since the originally inspected 1.10.0 checkout.
+
+If the slowdown recurs, capture packet loss, queue depth and pending-frame age
+before and during it, along with GPU load, memory and Wi-Fi latency. No machine
+settings or installed application files were changed during this work.
