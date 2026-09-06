@@ -1,5 +1,7 @@
 
 add_library(munit "${CMAKE_CURRENT_SOURCE_DIR}/munit/munit.c")
+# The bundled munit uses ATOMIC_VAR_INIT, which was removed in C23.
+set_target_properties(munit PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 target_include_directories(munit PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/munit")
 
 set(CHIAKI_UNIT_SOURCES
