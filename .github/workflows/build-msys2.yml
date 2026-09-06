@@ -1,6 +1,8 @@
 name: Build chiaki-ng msys2 x86 Windows
 
 on:
+  push:
+    branches: [fix/stream-timestamp-drift]
   workflow_dispatch:
     inputs:
       libplacebo_version:
@@ -95,7 +97,8 @@ jobs:
 
       - name: Build chiaki-ng
         run: |
-          cmake --build build --config Release --clean-first --target chiaki
+          cmake --build build --config Release --clean-first --target chiaki chiaki-unit
+          ctest --test-dir build --output-on-failure
           
       - name: Deploy chiaki-ng
         run: |
